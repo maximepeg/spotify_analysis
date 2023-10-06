@@ -3,7 +3,7 @@ import pytorch_lightning as pl
 from torch import nn
 
 
-class MLP(pl.LightningModule):
+class AutoEncoder(pl.LightningModule):
     def __init__(self, input_dim, hidden_layers, output_dim, lr=1e-3, dropout=0.0):
         super().__init__()
         self.layers = nn.ModuleList()
@@ -26,13 +26,13 @@ class MLP(pl.LightningModule):
         return self.layers[-1](x)
 
     def common_step(self, batch, batch_idx):
-        x, y = batch
-        y = y.unsqueeze(1).float()
+        x, _ = batch
+        # y = y.unsqueeze(1).float()
         x=x.float()
 
-        logits = self(x)
+        out = self(x)
 
-        loss = self.loss(logits, y)
+        loss = self.loss(out, x)
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -48,47 +48,45 @@ class MLP(pl.LightningModule):
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
 
-
-# categorical embedding
-
-class CategMLP(pl.LightningModule):
-    def __init__(self, input_dim, categ_dim, embedding_dim, hidden_layers, output_dim, lr=1e-3, dropout=0.0):
+class DAE(pl.LightningModule):
+    def __init__(self, input_dim, hidden_layers, output_dim, noise_mean=0.1, noise_std=0.1, lr=1e-3, dropout=0.0):
         super().__init__()
         self.layers = nn.ModuleList()
-        self.lr = lr
+        self.layers.append(nn.Linear(input_dim, hidden_layers[0]))
         self.dropout = nn.Dropout(dropout)
-        self.layers.append(nn.Linear(input_dim+embedding_dim, hidden_layers[0]))
-        for i in range(1, len(hidden_layers) - 1):
+        self.noise_mean=noise_mean
+        self.noise_std=noise_std
+
+        for i in range(len(hidden_layers) - 1):
             self.layers.append(nn.Linear(hidden_layers[i], hidden_layers[i + 1]))
 
         self.layers.append(nn.Linear(hidden_layers[-1], output_dim))
-        self.embedding_layer = nn.Linear(categ_dim, embedding_dim)
         self.loss = nn.MSELoss()
+        self.lr = lr
 
-    def forward(self, batch, batch_idx):
-        x, categ, y = batch
-        categ = self.embedding_layer(categ.float())
-        x = torch.cat((categ, x), dim=1)
-        for layer in self.layers[:-1]:
+    def forward(self, x):
+        x = self.layers[0](x)
+        for layer in self.layers[1:-1]:
             x = torch.relu(layer(x))
             x = self.dropout(x)
+
         return self.layers[-1](x)
 
-    def embed_categories(self, batch, batch_idx):
-        x, categ, y = batch
-        categ = self.embedding_layer(categ.float())
-        return categ
-
     def common_step(self, batch, batch_idx):
-        _, _, y = batch
-        y = y.unsqueeze(1).float()
+        x, _ = batch
+        # y = y.unsqueeze(1).float()
+        x = x.float()
 
-        out = self(batch, batch_idx)
-        loss = self.loss(out, y)
+        out = self(x)
+
+        loss = self.loss(out, x)
         return loss
 
     def training_step(self, batch, batch_idx):
-        loss = self.common_step(batch, batch_idx)
+        x, _ = batch
+        noisy_x = x.float() + torch.randn_like(x) * self.noise_std+self.noise_mean
+        out = self(noisy_x)
+        loss = self.loss(out, x)
         self.log('train_loss', loss)
         return loss
 
