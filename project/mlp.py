@@ -74,14 +74,8 @@ class CategMLP(pl.LightningModule):
             x = self.dropout(x)
         return self.layers[-1](x)
 
-    def embed_categories(self, batch, batch_idx):
-        x, categ, y = batch
-        categ = self.embedding_layer(categ.float())
-        return categ
-
     def embed_categories(self, data):
-        return self.embedding_layer(data)
-
+        return self.embedding_layer(data.float())
 
     def common_step(self, batch, batch_idx):
         _, _, y = batch
